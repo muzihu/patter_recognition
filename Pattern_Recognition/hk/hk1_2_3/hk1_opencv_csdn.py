@@ -4,7 +4,7 @@ import matplotlib
 import matplotlib.pyplot as plt
   
 
-test_num = ["1","2","3","4","5","6","划痕","噪声"]
+test_num = ["1","2","3","4","5","6","划痕","噪声"]  
 for test_test in range(8): 
     img_pre = cv2.imread("./test/"+test_num[test_test]+".bmp",0)  
     img=cv2.adaptiveThreshold(img_pre,255,cv2.ADAPTIVE_THRESH_MEAN_C,cv2.THRESH_BINARY,35,5)
@@ -59,8 +59,8 @@ for test_test in range(8):
         # 通过确定对角线画矩形
         cv2.rectangle(img_pre,max_loc, bottom_right, 255, 2) 
         cho_num[i] = num_like[max_loc[1]][max_loc[0]] 
-        for j in range(max(w)/2-1):
-            for k in range(max(h)/2-1):
+        for j in range(max(w)/2):
+            for k in range(max(h)/2):
                 if ((max_loc[1]+k)<len(res_max) and (max_loc[0]+j)<len(res_max[0])) :
                     res_max[max_loc[1]+k][max_loc[0]+j] = 0
                 if ((max_loc[1]-k)>=0 and (max_loc[0]-j)>=0) :
