@@ -8,6 +8,7 @@ test_num = ["1","2","3","4","5","6","划痕","噪声"]
 for test_test in range(8): 
     img_pre = cv2.imread("./test/"+test_num[test_test]+".bmp",0)  
     img=cv2.adaptiveThreshold(img_pre,255,cv2.ADAPTIVE_THRESH_MEAN_C,cv2.THRESH_BINARY,35,5)
+    # ADAPTIVE_THRESH_GAUSSIAN_C
     img2 = img.copy()  
     template_num = ["0","1","2","3","4","6","8","9"]
     w = np.zeros((8,1))
