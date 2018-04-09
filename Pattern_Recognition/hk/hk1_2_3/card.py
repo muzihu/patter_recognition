@@ -1,204 +1,206 @@
-# import the necessary packages
-from imutils import contours
-import numpy as np
-import argparse
-import imutils
-import cv2
+import cv2  
+import numpy as np  
+import matplotlib
+import matplotlib.pyplot as plt
 
-# construct the argument parser and parse the arguments解析命令行参数
-ap = argparse.ArgumentParser()
-ap.add_argument("-i", "--image", required=True,
-                help="path to input image")
-ap.add_argument("-r", "--reference", required=True,
-                help="path to reference OCR-A image")
-args = vars(ap.parse_args())
+def haar_extractor(img_1, img_2):
+    """
+    输入一个图片，计算该图的harr特征
+    img_1 :白色图
+    img_2 ：阴影图
+    :return: 白色图与阴影图之差的loss
+    size same
+    """
+    num1 = sum(sum(img_1))
+    num2 = sum(sum(img_2))
+    return num1 - num2
 
-# define a dictionary that maps the first digit of a credit card
-# number to the credit card type定义信用卡类型
-FIRST_NUMBER = {
-    '0': 'None',
-    "3": "American Express",
-    "4": "Visa",
-    "5": "MasterCard",
-    "6": "Discover Card"
-}
+def cut_picture(img, x, y, w, h):
+    """
+    函数功能：
+    输入一个图片，以及切割参数，返回切割好后的二值化图片
+    参数：
+    img：图片输入
+    x, y: 希望切割的图片的左上角坐标
+    w, h: 图片的宽度和高度
+    flag: flag = 1 表示切下的图片是外接的
+    """
+    cut_img = img[x:x+h, y:y+w]
+    mean = cut_img.mean()
+    cut_img[cut_img <= mean] = 0
+    cut_img[cut_img > mean] = 255
+    return np.array(cut_img)
 
-# load the reference OCR-A image from disk, convert it to grayscale,
-# and threshold it, such that the digits appear as *white* on a
-# *black* background
-# and invert it, such that the digits appear as *white* on a *black*
-ref = cv2.imread(args["reference"])
-ref = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
-ref = cv2.threshold(ref, 10, 255, cv2.THRESH_BINARY_INV)[1]
+def feature_extractor(img):
+    """
+    输入一个图片，抽取该图片的特征向量
+    img: 输入图像 尺寸大小为30 × 30 
+    feature: 输出的特征向量 
+    32*32  ——》   31*28
+    """
+    feature = []
+    img = cv2.resize(img, (32, 32), interpolation=cv2.INTER_CUBIC)
+    # 以2×2为一个方块抽取哈尔特征：
+    for i in range(0, 32, 4):
+        for j in range(0, 32, 2):
+            split_img = cut_picture(img, i, j, 2, 4)
+            split_img[split_img == 255] = 1
+            num = haar_extractor(np.array(split_img[:2,:]), np.array(split_img[2:,:]))
+            feature.append(num)
+    # 以2×4为一个方块提取哈尔特征：
+    for i in range(0, 32, 4):
+        for j in range(0, 32, 4):
+            split_img = cut_picture(img, i, j, 4, 4)
+            split_img[split_img == 255] = 1
+            num = haar_extractor(split_img[:2,:], split_img[2:,:])
+            feature.append(num)
+    # 以4×4为一个方块提取哈尔特征：
+    for i in range(0, 32, 8):
+        for j in range(0, 32, 4):
+            split_img = cut_picture(img, i, j, 4, 8)
+            split_img[split_img == 255] = 1
+            num = haar_extractor(split_img[:4,:], split_img[4:,:])
+            feature.append(num)
+    # 以8×16为一个方块提取哈尔特征：
+    for i in range(0, 32, 16):
+        for j in range(0, 32, 16):
+            split_img = cut_picture(img, i, j, 16, 16)
+            split_img[split_img == 255] = 1
+            num = haar_extractor(split_img[:8, :], split_img[8:, :])
+            feature.append(num)
+    # 以16×16为一个方块提取哈尔特征：
+    for i in range(0, 32, 32):
+        for j in range(0, 32, 16):
+            split_img = cut_picture(img, i, j, 16, 32)
+            split_img[split_img == 255] = 1
+            num = haar_extractor(split_img[:16, :], split_img[16:, :])
+            feature.append(num)
+    return feature
 
-cv2.imshow('ref', ref)
-cv2.waitKey(0)
+# def sample_haar_cal(img, size):
+#     sample_haar = np.zeros(range(len(img)-int(size[0])),range(len(img[0])-int(size[1])))
+#     for i in range(len(img)-int(size[0])):
+#         for j in range(len(img[0])-int(size[1])):
+#             img_tmp = img[i:i+int(size[0]),j:j+int(size[1])]
+#             sample_haar[i][j] = feature_extractor(img_tmp)
+#     return sample_haar
 
-'''
-# find contours in the OCR-A image (i.e,. the outlines of the digits)
-# sort them from left to right, and initialize a dictionary to map
-# digit name to the ROI
-# refCnts = cv2.findContours(ref.copy(), cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)#有问题
-refCnts = cv2.findContours(ref.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-# refCnts = refCnts[0] if imutils.is_cv2() else refCnts[1]
-refCnts = refCnts[1]
-print('len cnt:',len(refCnts))
-refCnts = contours.sort_contours(refCnts, method="left-to-right")[0]#排列轮廓，没意义
-print('sort_contours len cnt:',len(refCnts))
-digits = {}
-# 循环浏览轮廓，提取ROI并将其与相应的数字相关联
-# loop over the OCR-A reference contours
-for (i, c) in enumerate(refCnts):
-    # compute the bounding box for the digit, extract it, and resize
-    # it to a fixed size
-    (x, y, w, h) = cv2.boundingRect(c)
-    roi = ref[y:y + h, x:x + w]
-    roi = cv2.resize(roi, (57, 88))
-    cv2.imshow('roi', roi)
-    cv2.waitKey(500)
-    # update the digits dictionary, mapping the digit name to the ROI
-    digits[i] = roi
-# 从参考图像中提取数字，并将其与相应的数字名称相关联
-print('digits:',digits.keys())
-'''
+def matchTemplate(img,mod_haar,size):
+    # sample_haar = sample_haar_cal(img, size)
+    # for i in range(len(mod_haar)):
+    #     for j in range(len(img[0])-int(size[1])):
+    #         img_tmp = img[i:i+int(size[0]),j:j+int(size[1])]
+    #         sample_haar[i][j] = feature_extractor(img_tmp)
+    #         loss = sample_haar - mod_haar[i]
+    #         loss = sum(loss ** 2)
+    # sample_haar = np.zeros((len(img)-int(size[0]),len(img[0])-int(size[1])))
+    res = np.ones((len(img)-int(size[0]),len(img[0])-int(size[1])))*1000000
+    for i in range(len(res)):
+        for j in range(len(res[0])):
+            if i%4==0 and j%4==0 :
+                img_tmp = img[i:i+int(size[0]),j:j+int(size[1])]
+                sample_haar = feature_extractor(img_tmp)
+                res[i][j] = sum((np.array(sample_haar) - np.array(mod_haar)) ** 2)
+    return res
 
-# try1
-digits = {}
-rows, cols = ref.shape
-per = int(cols / 10)
-for x in range(10):
-    roi = ref[:, x * per:(x + 1) * per]
-    roi = cv2.resize(roi, (57, 88))
-    cv2.imshow('roi', roi)
-    cv2.waitKey(500)
+if __name__ == '__main__':
+    test_num = ["1","2","3","4","5","6","划痕","噪声"]  
+    for test_test in range(1): 
+        img_pre = cv2.imread("./test/"+test_num[test_test]+".bmp",0)  
+        img=cv2.adaptiveThreshold(img_pre,255,cv2.ADAPTIVE_THRESH_MEAN_C,cv2.THRESH_BINARY,35,5)
+        # ADAPTIVE_THRESH_GAUSSIAN_C
+        img2 = img.copy()  
+        template_num = ["0","1","2","3","4","6","8","9"]
+        w = np.zeros((8,1))
+        h = np.zeros((8,1))
 
-    # update the digits dictionary, mapping the digit name to the ROI
-    digits[x] = roi
-# 从参考图像中提取数字，并将其与相应的数字名称相关联
-print('digits:', digits.keys())
+        img = img2.copy()  
+        meth = 'cv2.TM_CCOEFF'
+        method = eval(meth)  
+        template_pre = {}
+        mod_haar = {}
+        res = {}
 
-# 初始化一对结构化的内核：
-# 您可以将内核看作是一个小矩阵，我们在图像上滑动以进行（卷积）操作，例如模糊，锐化，边缘检测或其他图像处理操作。
-# initialize a rectangular (wider than it is tall) and square
-# structuring kernel
-rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3))
-sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        for i in range(1):
+            template_pre_single = cv2.imread("./train/"+template_num[i]+".bmp",0)  
+            ret_single,template_single = cv2.threshold(template_pre_single,template_pre_single.mean(),255,cv2.THRESH_BINARY)
+            w[i],h[i] = template_single.shape[::-1]  
+            mod_haar[i] = feature_extractor(template_pre_single)
+            template_pre[i] = template_single
 
-# 读取信用卡相片
-# load the input image, resize it, and convert it to grayscale
-image = cv2.imread(args["image"])
-image = imutils.resize(image, width=300)
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        for i in range(1): 
+            tmp1 = int((max(w)-w[i])/2)
+            tmp2 = int(max(w)-w[i]-tmp1)
+            tmp3 = int((max(h)-h[i])/2)
+            tmp4 = int(max(h)-h[i]-tmp3)
+            template_pre[i] = cv2.copyMakeBorder(template_pre[i], tmp3,tmp4,tmp1,tmp2, cv2.BORDER_CONSTANT, value=[255,255,255])
+            template_pre[i] = cv2.resize(template_pre[i], (32, 32), interpolation=cv2.INTER_CUBIC)
+            # 步长为1的扫描窗所得残差res 
+            size = [max(h), max(w)]
+            res_tmp = matchTemplate(img,mod_haar[i],size) 
+            res[i] = res_tmp
 
-# apply a tophat (whitehat) morphological operator to find light
-# regions against a dark background (i.e., the credit card numbers)
-tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKernel)
+            # print meth  
+            # plt.subplot(111), plt.imshow(template_pre[i],cmap= "gray")  
+            # plt.title('Original Image'), plt.xticks([]),plt.yticks([])  
+            # plt.show() 
+            # v2.waitKey(1)
 
-# compute the Scharr gradient of the tophat image, then scale
-# the rest back into the range [0, 255]
-gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0,
-                  ksize=-1)
-gradX = np.absolute(gradX)
-(minVal, maxVal) = (np.min(gradX), np.max(gradX))
-gradX = (255 * ((gradX - minVal) / (maxVal - minVal)))
-gradX = gradX.astype("uint8")
+        res_max = np.zeros_like(res_tmp)
+        num_like = np.zeros_like(res_tmp)
+        for i in range(len(res_tmp)):
+            for j in range(len(res_tmp[0])):
+                res_max_tmp = [res[0][i][j],res[1][i][j],res[2][i][j],res[3][i][j],res[4][i][j],res[5][i][j],res[6][i][j],res[7][i][j]]
+                res_max[i][j] = max(res_max_tmp)
+                num_like[i][j] = res_max_tmp.index(max(res_max_tmp)) 
 
-# apply a closing operation using the rectangular kernel to help
-# cloes gaps in between credit card number digits, then apply
-# Otsu's thresholding method to binarize the image
-gradX = cv2.morphologyEx(gradX, cv2.MORPH_CLOSE, rectKernel)
-thresh = cv2.threshold(gradX, 0, 255,
-                       cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+        if test_test<6:
+            threshold_i = 7e6
+        elif test_test==6:
+            threshold_i = 6e6
+        elif test_test==7:
+            threshold_i = 4.3e6
+        else:
+            break
+        cho_max = 14
+        top_left = {}
+        cho_num = {}
+        # i = 0
+        for i in range(cho_max):
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res_max)  
+            # if max_val<threshold_i:
+            #     break
+            top_left[i] = max_loc  
+            bottom_right = (max_loc[0] + int(max(w)), max_loc[1] + int(max(h)))
+            # 通过确定对角线画矩形
+            cv2.rectangle(img_pre,max_loc, bottom_right, 255, 2) 
+            cho_num[i] = num_like[max_loc[1]][max_loc[0]] 
+            img_save = img_pre[max_loc[1]:max_loc[1]+int(max(h)),max_loc[0]:max_loc[0]+int(max(w))]
+            for j in range(max(w)/2):
+                for k in range(max(h)/2):
+                    if ((max_loc[1]+k)<len(res_max) and (max_loc[0]+j)<len(res_max[0])) :
+                        res_max[max_loc[1]+k][max_loc[0]+j] = 0
+                    if ((max_loc[1]-k)>=0 and (max_loc[0]-j)>=0) :
+                        res_max[max_loc[1]-k][max_loc[0]-j] = 0
+                    if ((max_loc[1]+k)<len(res_max) and (max_loc[0]-j)>=0) :
+                        res_max[max_loc[1]+k][max_loc[0]-j] = 0
+                    if ((max_loc[1]-k)>=0 and (max_loc[0]+j)<len(res_max[0])) :
+                        res_max[max_loc[1]-k][max_loc[0]+j] = 0
+            # print(cho_num[i])
+            print('识别的第%d个数字是%s，位置在%d， %d' %(i+1,template_num[int(cho_num[i])],max_loc[0],max_loc[1]))
+            # cv2.imwrite('./'+test_num[test_test]+'/'+str(i)+'_'+template_num[int(cho_num[i])]+'.jpg',img_save)
+            # i += 1
+        print(max_val)
 
-# apply a second closing operation to the binary image, again
-# to help close gaps between credit card number regions
-thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, sqKernel)
-
-# find contours in the thresholded image, then initialize the
-# list of digit locations找到轮廓并初始化数字分组位置列表。
-cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
-                        cv2.CHAIN_APPROX_SIMPLE)
-cnts = cnts[0] if imutils.is_cv2() else cnts[1]
-locs = []
-
-# loop over the contours
-for (i, c) in enumerate(cnts):
-    # compute the bounding box of the contour, then use the
-    # bounding box coordinates to derive the aspect ratio
-    (x, y, w, h) = cv2.boundingRect(c)
-    ar = w / float(h)
-
-    # since credit cards used a fixed size fonts with 4 groups
-    # of 4 digits, we can prune potential contours based on the
-    # aspect ratio根据每个轮廓的宽高比进行过滤
-    if ar > 2.5 and ar < 4.0:
-        # contours can further be pruned on minimum/maximum width
-        # and height使用纵横比，我们分析每个轮廓的形状。如果 ar   在2.5到4.0之间（比它高），以及  40到55个像素之间的 w以及   10到20像素之间的h，我们将一个方便的元组的边界矩形参数附加到 locs
-        if (w > 40 and w < 55) and (h > 10 and h < 20):
-            # append the bounding box region of the digits group
-            # to our locations list
-            locs.append((x, y, w, h))
-
-# sort the digit locations from left-to-right, then initialize the
-# list of classified digits
-locs = sorted(locs, key=lambda x: x[0])
-output = []
-
-# loop over the 4 groupings of 4 digits
-for (i, (gX, gY, gW, gH)) in enumerate(locs):
-    # initialize the list of group digits
-    groupOutput = []
-
-    # extract the group ROI of 4 digits from the grayscale image,
-    # then apply thresholding to segment the digits from the
-    # background of the credit card
-    group = gray[gY - 5:gY + gH + 5, gX - 5:gX + gW + 5]
-    group = cv2.threshold(group, 0, 255,
-                          cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-
-    # detect the contours of each individual digit in the group,
-    # then sort the digit contours from left to right
-    digitCnts = cv2.findContours(group.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.imshow('digitCnts', digitCnts[0])
-    cv2.waitKey(1000)
-    # digitCnts = digitCnts[0] if imutils.is_cv2() else digitCnts[1]
-    digitCnts = digitCnts[1]
-    # digitCnts = contours.sort_contours(digitCnts,method="left-to-right")[0]
-
-    # loop over the digit contours
-    for c in digitCnts:
-        # compute the bounding box of the individual digit, extract
-        # the digit, and resize it to have the same fixed size as
-        # the reference OCR-A images
-        (x, y, w, h) = cv2.boundingRect(c)
-        roi = group[y:y + h, x:x + w]
-        roi = cv2.resize(roi, (57, 88))
-
-        # initialize a list of template matching scores
-        scores = []
-
-        # loop over the reference digit name and digit ROI
-        for (digit, digitROI) in digits.items():
-            # apply correlation-based template matching, take the
-            # score, and update the scores list
-            result = cv2.matchTemplate(roi, digitROI,
-                                       cv2.TM_CCOEFF)
-            (_, score, _, _) = cv2.minMaxLoc(result)
-            scores.append(score)
-
-        # the classification for the digit ROI will be the reference
-        # digit name with the *largest* template matching score
-        groupOutput.append(str(np.argmax(scores)))  # draw the digit classifications around the group
-        cv2.rectangle(image, (gX - 5, gY - 5),
-                      (gX + gW + 5, gY + gH + 5), (0, 0, 255), 2)
-        cv2.putText(image, "".join(groupOutput), (gX, gY - 15),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
-
-    # update the output digits list
-    output.extend(groupOutput)
-
-# display the output credit card information to the screen
-print("Credit Card Type: {}".format(FIRST_NUMBER.get(output[0], 'None')))
-print("Credit Card #: {}".format("".join(output)))
-cv2.imshow("Image", image)  # TODO 效果不是很好，需要改进
-cv2.waitKey(0)
+        print meth  
+        plt.subplot(221), plt.imshow(img2,cmap= "gray")  
+        plt.title('Original Image'), plt.xticks([]),plt.yticks([])  
+        plt.subplot(222), plt.imshow(template_pre_single,cmap= "gray")  
+        plt.title('template Image'),plt.xticks([]),plt.yticks([])  
+        plt.subplot(223), plt.imshow(res_max,cmap= "gray")  
+        plt.title('Matching Result'), plt.xticks([]),plt.yticks([])  
+        plt.subplot(224), plt.imshow(img_pre,cmap= "gray")  
+        plt.title('Detected Point'),plt.xticks([]),plt.yticks([])  
+        plt.show()  
+        
+    print("success")

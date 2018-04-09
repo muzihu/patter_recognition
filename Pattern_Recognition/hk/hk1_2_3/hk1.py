@@ -1,6 +1,13 @@
+'''
+
+运行环境：python 2.7 
+运行需要的库文件：openCV， numpy， matplotlib
+运行方法： 运行python hk1.py。（test和train文件夹放在hk1.py当前目录下即可）
+
+'''
+
 import cv2  
 import numpy as np  
-import matplotlib
 import matplotlib.pyplot as plt
   
 
